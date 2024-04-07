@@ -28,12 +28,14 @@ std::string cleanData(std::string _data) {
     return "";
 }
 
-void writeToCSV(std::string _filename, double _bidVolSum, double _askVolSum, double _bidAskSpread) {
+void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice, double _totalBidVolume, double _totalAskVolume, double _avgBidAskSpread) {
     std::ofstream _file(_filename, std::ios::app);
     if (_file.is_open()) {
-        _file << _bidVolSum << ",";
-        _file << _askVolSum << ",";
-        _file << _bidAskSpread << "\n";
+        _file << _avgBidPrice << ",";
+        _file << _avgAskPrice << ",";
+        _file << _totalBidVolume << ",";
+        _file << _totalAskVolume << ",";
+        _file << _avgBidAskSpread << "\n";
         _file.close();
         std::cout << "Written to File." << std::endl;
     }
@@ -72,14 +74,11 @@ std::string httpRequest(std::string _endpointUrl) {
         boost::asio::connect(_socket.next_layer(), results.begin(), results.end());
         _socket.handshake(boost::asio::ssl::stream_base::client);
 
-        std::cout << "Creating Empty GET Request." << std::endl;
         boost::beast::http::request<boost::beast::http::empty_body> _http_request;
         _http_request.method(boost::beast::http::verb::get);
         _http_request.target(_endpointUrl);
         _http_request.set(boost::beast::http::field::host, BINANCE_BASE_ENDPOINT);
         _http_request.set(boost::beast::http::field::user_agent, "HTTP Client with BoostBeast");
-
-        std::cout << "Added information to Request." << std::endl;
 
         boost::beast::http::write(_socket, _http_request);
 
@@ -109,6 +108,73 @@ std::string httpRequest(std::string _endpointUrl) {
     }
 }
 
+double totalBidPrice(json& _jsonResponse) {
+    double _totalBidPrice = 0;
+    for (const auto& _bid : _jsonResponse["bids"]) {
+        double _bidPrice = std::stod(_bid[0].get<std::string>());
+        double _bidQty = std::stod(_bid[1].get<std::string>());
+        _totalBidPrice += (_bidPrice*_bidQty);
+    }
+    return _totalBidPrice;
+}
+
+double totalBidVol(json& _jsonResponse) {
+    double _totalBidVol = 0;
+    for (const auto& _bid : _jsonResponse["bids"]) {
+        double _bidQty = std::stod(_bid[1].get<std::string>());
+        _totalBidVol += _bidQty;
+    }
+    return _totalBidVol;
+}
+
+double avgBidPrice(json& _jsonResponse) {
+    double _avgBidPrice = 0;
+    double _totalBidPrice = totalBidPrice(_jsonResponse);
+    double _totalBidVolume = totalBidVol(_jsonResponse);
+    _avgBidPrice = _totalBidPrice / _totalBidVolume;
+    return _avgBidPrice;
+}
+
+double totalAskPrice(json& _jsonResponse) {
+    double _totalAskPrice = 0;
+    for (const auto& _ask : _jsonResponse["asks"]) {
+        double _askPrice = std::stod(_ask[0].get<std::string>());
+        double _askQty = std::stod(_ask[1].get<std::string>());
+        _totalAskPrice += (_askPrice * _askQty);
+    }
+    return _totalAskPrice;
+}
+
+double totalAskVol(json& _jsonResponse) {
+    double _totalAskVol = 0;
+    std::vector<double> _askVolumes;
+    for (const auto& _ask : _jsonResponse["asks"]) {
+        double _askQty = std::stod(_ask[1].get<std::string>());
+        _totalAskVol += _askQty;
+    }
+    return _totalAskVol;
+}
+
+double avgAskPrice(json& _jsonResponse) {
+    double _avgAskPrice = 0;
+    double _totalAskPrice = totalAskPrice(_jsonResponse);
+    double _totalAskVolume = totalAskVol(_jsonResponse);
+    _avgAskPrice = _totalAskPrice / _totalAskVolume;
+    return _avgAskPrice;
+}
+
+double avgBidAskSpread(json& _jsonResponse) {
+    double _avgBidAskSpread = 0;
+    double _avgBidPrice = 0;
+    double _avgAskPrice = 0;
+
+    _avgBidPrice = avgBidPrice(_jsonResponse);
+    _avgAskPrice = avgAskPrice(_jsonResponse);
+
+    _avgBidAskSpread = _avgBidPrice - _avgAskPrice;
+    return _avgBidAskSpread;
+}
+
 int main() {
     /*
     std::string _symbol = "BTC-240328-70000-C";
@@ -118,7 +184,7 @@ int main() {
     */
 
     std::string _symbol = "BTCUSDT";
-    long _limit = 5;
+    long _limit = 10;
     
     std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, _symbol, _limit);
 
@@ -128,57 +194,15 @@ int main() {
         if (!_http_response_data.empty()) {
 
             json _jsonResponse = json::parse(_http_response_data);
+            json& _jsonResponseRef = _jsonResponse;
 
-            std::vector<std::string> _bidsVol;
-            std::vector<std::string> _asksVol;
+            double _avgBidPrice = avgBidPrice(_jsonResponseRef);
+            double _avgAskPrice = avgAskPrice(_jsonResponseRef);
+            double _totalBidVolume = totalBidVol(_jsonResponseRef);
+            double _totalAskVolume = totalAskVol(_jsonResponseRef);
+            double _avgBidAskSpread = avgBidAskSpread(_jsonResponseRef);
 
-            double _bidVolSum = 0;
-            double _askVolSum = 0;
-
-            for (const auto& _bidVol : _jsonResponse["bids"][0][1]) {
-                _bidsVol.push_back(_bidVol);
-            }
-            for (const auto& _bidVol : _bidsVol) {
-                _bidVolSum = _bidVolSum + std::stod(_bidVol);
-            }
-
-            for (const auto& _askVol : _jsonResponse["asks"][0][1]) {
-                _asksVol.push_back(_askVol);
-            }
-            for (const auto& _askVol : _asksVol) {
-                _askVolSum = _askVolSum + std::stod(_askVol);
-            }
-
-            for (const auto& _bidVol : _bidsVol) {
-                _bidVolSum = _bidVolSum + std::stod(_bidVol);
-            }
-
-            std::cout << "Total bid Volume: " << _bidVolSum << std::endl;
-
-            std::cout << "Total ask Volume: " << _askVolSum << std::endl;
-
-
-            std::vector<std::string> _bidPrices;
-            std::vector<std::string> _askPrices;
-
-            double _bidAskSpread = 0;
-            for (const auto& _bidPrice : _jsonResponse["bids"][0][0]) {
-                _bidPrices.push_back(_bidPrice);
-            }
-            for (const auto& _askPrice : _jsonResponse["asks"][0][0]) {
-                _askPrices.push_back(_askPrice);
-            }
-
-            /// GET WEIGHTED AVERAGE OF BID PRICES AND ASK PRICES TO GET ACCURATE AVERAGE BID ASK SPREAD, NOT LAST
-            for (const auto& _bidPrice : _bidPrices) {
-                for (const auto& _askPrice : _askPrices) {
-                    _bidAskSpread = std::stod(_askPrice) - std::stod(_bidPrice);
-                }
-            }
-
-            std::cout << "Bid-Ask Spread: " << _bidAskSpread << std::endl;
-
-            writeToCSV("data.csv", _bidVolSum, _askVolSum, _bidAskSpread);
+            writeToCSV("data.csv", _avgBidPrice, _avgAskPrice, _totalBidVolume, _totalAskVolume, _avgBidAskSpread);
 
             std::cout << "Iteration: " << std::to_string(i) << std::endl;
         }
@@ -206,6 +230,9 @@ int main() {
 
         // trade confidence calculated by narrow spread vs wide spread, current spread vs average overall spread in timeframe (e.g. monthly spread average)
     }
+
+
+
     // 30 intervals of 10 seconds for total runtime of 5 minutes
     
     // calculate the SMA of the past 5 minutes, sum of closing prices of past 5 minutes / number of periods in timeframe, e.g. 30
