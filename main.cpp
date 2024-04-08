@@ -275,9 +275,7 @@ int main() {
     
     std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, _symbol, _limit);
 
-    // 30, ten seconds
-    /*
-    for (int i = 0; i != 5; i++) {
+    for (int i = 0; i != 30; i++) {
         std::string _http_response_data = httpRequest(_endpointUrl);
 
         if (!_http_response_data.empty()) {
@@ -297,9 +295,8 @@ int main() {
 
             std::cout << "Iteration: " << std::to_string(i) << std::endl;
         }
-        std::this_thread::sleep_for(std::chrono::seconds(5));
+        std::this_thread::sleep_for(std::chrono::seconds(10));
     }
-    */
     dataNormalizer("data.csv", "n_data.csv");
 
         // CLEAN DATA.CSV HERE, PRODUCE DATA_CLEANED.CSV
