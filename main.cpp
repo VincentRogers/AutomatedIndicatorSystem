@@ -23,7 +23,7 @@ const std::string BINANCE_PORT = "443";
 const std::string API_KEY = "";
 const std::string API_SECRET = "";
 const std::string SYMBOL = "BTCUSDT";
-const int ITERATION_NUMBER = 10;
+const int ITERATION_NUMBER = 20;
 const int TIME_WAIT = 30;
 
 using json = nlohmann::json;
@@ -32,7 +32,7 @@ std::string cleanData(std::string _data) {
     return "";
 }
 
-void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice, double _totalBidVolume, double _totalAskVolume, double _avgBidAskSpread, double _priceChange) {
+void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice, double _totalBidVolume, double _totalAskVolume, double _avgBidAskSpread, long double _priceChange) {
     std::ofstream _file(_filename, std::ios::app);
     if (_file.is_open()) {
         _file << _avgBidPrice << ",";
@@ -339,7 +339,7 @@ int main() {
             double _currentPrice = getPrice();
             std::cout << "Current Price: " << _currentPrice << std::endl;
 
-            double _priceChange = _currentPrice / _startPrice;
+            long double _priceChange = _currentPrice / _startPrice;
             std::cout << "Percent Change: " << _priceChange << std::endl;
 
             writeToCSV("data.csv", _avgBidPrice, _avgAskPrice, _totalBidVolume, _totalAskVolume, _avgBidAskSpread, _priceChange);
