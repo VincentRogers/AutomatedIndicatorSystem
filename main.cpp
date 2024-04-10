@@ -28,10 +28,6 @@ const int TIME_WAIT = 30;
 
 using json = nlohmann::json;
 
-std::string cleanData(std::string _data) {
-    return "";
-}
-
 void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice, double _totalBidVolume, double _totalAskVolume, double _avgBidAskSpread, long double _priceChange) {
     std::ofstream _file(_filename, std::ios::app);
     if (_file.is_open()) {
@@ -39,8 +35,8 @@ void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice,
         _file << _avgAskPrice << ",";
         _file << _totalBidVolume << ",";
         _file << _totalAskVolume << ",";
-        _file << _priceChange << ",";
-        _file << _avgBidAskSpread << "\n";
+        _file << _avgBidAskSpread << ",";
+        _file << _priceChange << "\n";
         _file.close();
         std::cout << "Written to File." << std::endl;
     }
@@ -199,6 +195,7 @@ struct MarketSlice {
     double totalBidVol;
     double totalAskVol;
     double avgBidAskSpread;
+    long double priceChange;
 };
 
 void dataNormalizer(const std::string& _inputFile, const std::string& _outputFile) {
@@ -209,7 +206,7 @@ void dataNormalizer(const std::string& _inputFile, const std::string& _outputFil
     MarketSlice _marketSlice;
     char _buffer;
 
-    while (_inputFileS >> _marketSlice.avgBidPrice >> _buffer >> _marketSlice.avgAskPrice >> _buffer >> _marketSlice.totalBidVol >> _buffer >> _marketSlice.totalAskVol >> _buffer >> _marketSlice.avgBidAskSpread) {
+    while (_inputFileS >> _marketSlice.avgBidPrice >> _buffer >> _marketSlice.avgAskPrice >> _buffer >> _marketSlice.totalBidVol >> _buffer >> _marketSlice.totalAskVol >> _buffer >> _marketSlice.avgBidAskSpread >> _buffer >> _marketSlice.priceChange) {
         _marketSlices.push_back(_marketSlice);
     }
 
@@ -227,7 +224,6 @@ void dataNormalizer(const std::string& _inputFile, const std::string& _outputFil
 
     double _minAvgBidAskSpread = _marketSlices[0].avgBidAskSpread;
     double _maxAvgBidAskSpread = _marketSlices[0].avgBidAskSpread;
-
 
     for (const auto& _slice : _marketSlices) {
         // Bid Price compare
@@ -275,7 +271,10 @@ void dataNormalizer(const std::string& _inputFile, const std::string& _outputFil
         double _normalizedTotalAskVolume = (_slice.totalAskVol - _minTotalAskVol) / (_maxTotalAskVol - _minTotalAskVol);
 
         double _normalizedBidAskSpread = (_slice.avgBidAskSpread - _minAvgBidAskSpread) / (_maxAvgBidAskSpread - _minAvgBidAskSpread);
-        _outputFileS << _normalizedAvgBidPrice << "," << _normalizedAvgAskPrice << "," << _normalizedTotalBidVolume << "," << _normalizedTotalAskVolume << "," << _normalizedBidAskSpread << std::endl;
+
+        long double _priceChange = _slice.priceChange;
+
+        _outputFileS << _normalizedAvgBidPrice << "," << _normalizedAvgAskPrice << "," << _normalizedTotalBidVolume << "," << _normalizedTotalAskVolume << "," << _normalizedBidAskSpread << "," << _priceChange << std::endl;
     }
     std::cout << "Normalized " << _inputFile << "." << std::endl;
 }
