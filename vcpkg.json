@@ -1,7 +1,9 @@
 {
   "dependencies": [
     "fmt",
+	"nlohmann-json",
 	"boost",
-	"nlohmann-json"
+	"openssl",
+	"dlib"
   ]
 }

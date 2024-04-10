@@ -4,6 +4,7 @@
 #include <boost/beast.hpp>
 #include <boost/asio/ssl.hpp>
 #include <nlohmann/json.hpp>
+#include <dlib/svm.h>
 
 /*
 Data Cleaning
@@ -17,10 +18,13 @@ const std::string BINANCE_BASE_ENDPOINT = "api.binance.com";
 const std::string BINANCE_TIME_ENDPOINT = "/api/v3/time";
 const std::string BINANCE_CANDLESTICK_ENDPOINT = "/api/v3/klines";
 const std::string BINANCE_ORDERBOOK_ENDPOINT = "/api/v3/depth";
+const std::string BINANCE_RECENT_TRADES_ENDPOINT = "/api/v3/trades";
 const std::string BINANCE_PORT = "443";
-const std::string CURRENCY_SYMBOL = "BTC";
 const std::string API_KEY = "";
 const std::string API_SECRET = "";
+const std::string SYMBOL = "BTCUSDT";
+const int ITERATION_NUMBER = 10;
+const int TIME_WAIT = 30;
 
 using json = nlohmann::json;
 
@@ -28,13 +32,14 @@ std::string cleanData(std::string _data) {
     return "";
 }
 
-void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice, double _totalBidVolume, double _totalAskVolume, double _avgBidAskSpread) {
+void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice, double _totalBidVolume, double _totalAskVolume, double _avgBidAskSpread, double _priceChange) {
     std::ofstream _file(_filename, std::ios::app);
     if (_file.is_open()) {
         _file << _avgBidPrice << ",";
         _file << _avgAskPrice << ",";
         _file << _totalBidVolume << ",";
         _file << _totalAskVolume << ",";
+        _file << _priceChange << ",";
         _file << _avgBidAskSpread << "\n";
         _file.close();
         std::cout << "Written to File." << std::endl;
@@ -43,7 +48,6 @@ void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice,
         std::cout << "Could not Open file." << std::endl;
     }
 }
-
 
 std::string constructCandlestickUrl(std::string _base_url, std::string _symbol, long _timeInterval, std::string _intervalType) {
     std::string _endpointUrl = _base_url + "?symbol=" + _symbol + "&interval=" + std::to_string(_timeInterval) + _intervalType;
@@ -55,22 +59,23 @@ std::string constructOrderBookUrl(std::string _base_url, std::string _symbol, lo
     return _endpointUrl;
 }
 
+std::string constructGetPriceURL(std::string _base_url, std::string _symbol, long _limit) {
+    std::string _endpointUrl = _base_url + "?symbol=" + _symbol + "&limit=" + std::to_string(_limit);
+    return _endpointUrl;
+}
+
 std::string httpRequest(std::string _endpointUrl) {
     
     try {
-        std::cout << "Boost version: " << BOOST_LIB_VERSION << std::endl;
-
         boost::asio::io_context _io_context;
         boost::asio::ssl::context _ssl_context(boost::asio::ssl::context::tlsv12_client);
         _ssl_context.set_default_verify_paths();
 
         boost::asio::ssl::stream<boost::asio::ip::tcp::socket> _socket(_io_context, _ssl_context);
 
-        std::cout << "Resolving given endpoint." << std::endl;
         boost::asio::ip::tcp::resolver _resolver(_io_context);
         auto const results = _resolver.resolve(BINANCE_BASE_ENDPOINT, "https");
 
-        std::cout << "Attempting SSL Handshake." << std::endl;
         boost::asio::connect(_socket.next_layer(), results.begin(), results.end());
         _socket.handshake(boost::asio::ssl::stream_base::client);
 
@@ -175,6 +180,19 @@ double avgBidAskSpread(const json& _jsonResponse) {
     return _avgBidAskSpread;
 }
 
+double getPrice() {
+    double _price = 0;
+    std::string _endpointUrl = constructGetPriceURL(BINANCE_RECENT_TRADES_ENDPOINT, SYMBOL, 1);
+    std::string _http_response_data = httpRequest(_endpointUrl);
+    if (!_http_response_data.empty()) {
+        json _jsonResponse = json::parse(_http_response_data);
+        for (const auto& _slice : _jsonResponse[0]["price"]) {
+            _price = std::stod(_slice.get<std::string>());
+        }
+    }
+    return _price;
+}
+
 struct MarketSlice {
     double avgBidPrice;
     double avgAskPrice;
@@ -183,83 +201,107 @@ struct MarketSlice {
     double avgBidAskSpread;
 };
 
-void dataNormalizer(const std::string& inputFile, const std::string& outputFile) {
-    std::ifstream inputFileS(inputFile);
-    std::ofstream outputFileS(outputFile);
+void dataNormalizer(const std::string& _inputFile, const std::string& _outputFile) {
+    std::ifstream _inputFileS(_inputFile);
+    std::ofstream _outputFileS(_outputFile);
     
-    std::vector<MarketSlice> marketSlices;
-    MarketSlice marketSlice;
-    char buffer;
+    std::vector<MarketSlice> _marketSlices;
+    MarketSlice _marketSlice;
+    char _buffer;
 
-    while (inputFileS >> marketSlice.avgBidPrice >> buffer >> marketSlice.avgAskPrice >> buffer >> marketSlice.totalBidVol >> buffer >> marketSlice.totalAskVol >> buffer >> marketSlice.avgBidAskSpread) {
-        marketSlices.push_back(marketSlice);
+    while (_inputFileS >> _marketSlice.avgBidPrice >> _buffer >> _marketSlice.avgAskPrice >> _buffer >> _marketSlice.totalBidVol >> _buffer >> _marketSlice.totalAskVol >> _buffer >> _marketSlice.avgBidAskSpread) {
+        _marketSlices.push_back(_marketSlice);
     }
 
-    double minAvgBidPrice = marketSlices[0].avgBidPrice;
-    double maxAvgBidPrice = marketSlices[0].avgBidPrice;
+    double _minAvgBidPrice = _marketSlices[0].avgBidPrice;
+    double _maxAvgBidPrice = _marketSlices[0].avgBidPrice;
 
-    double minAvgAskPrice = marketSlices[0].avgAskPrice;
-    double maxAvgAskPrice = marketSlices[0].avgAskPrice;
+    double _minAvgAskPrice = _marketSlices[0].avgAskPrice;
+    double _maxAvgAskPrice = _marketSlices[0].avgAskPrice;
 
-    double minTotalBidVol = marketSlices[0].totalBidVol;
-    double maxTotalBidVol = marketSlices[0].totalBidVol;
+    double _minTotalBidVol = _marketSlices[0].totalBidVol;
+    double _maxTotalBidVol = _marketSlices[0].totalBidVol;
 
-    double minTotalAskVol = marketSlices[0].totalAskVol;
-    double maxTotalAskVol = marketSlices[0].totalAskVol;
+    double _minTotalAskVol = _marketSlices[0].totalAskVol;
+    double _maxTotalAskVol = _marketSlices[0].totalAskVol;
 
-    double minAvgBidAskSpread = marketSlices[0].avgBidAskSpread;
-    double maxAvgBidAskSpread = marketSlices[0].avgBidAskSpread;
+    double _minAvgBidAskSpread = _marketSlices[0].avgBidAskSpread;
+    double _maxAvgBidAskSpread = _marketSlices[0].avgBidAskSpread;
 
 
-    for (const auto& slice : marketSlices) {
+    for (const auto& _slice : _marketSlices) {
         // Bid Price compare
-        if (slice.avgBidPrice < minAvgBidPrice) {
-            minAvgBidPrice = slice.avgBidPrice;
+        if (_slice.avgBidPrice < _minAvgBidPrice) {
+            _minAvgBidPrice = _slice.avgBidPrice;
         }
-        else if (slice.avgBidPrice > maxAvgBidPrice) {
-            maxAvgBidPrice = slice.avgBidPrice;
+        else if (_slice.avgBidPrice > _maxAvgBidPrice) {
+            _maxAvgBidPrice = _slice.avgBidPrice;
         }
         // Ask Price compare
-        if (slice.avgAskPrice < minAvgAskPrice) {
-            minAvgAskPrice = slice.avgAskPrice;
+        if (_slice.avgAskPrice < _minAvgAskPrice) {
+            _minAvgAskPrice = _slice.avgAskPrice;
         }
-        else if (slice.avgAskPrice > maxAvgAskPrice) {
-            maxAvgAskPrice = slice.avgAskPrice;
+        else if (_slice.avgAskPrice > _maxAvgAskPrice) {
+            _maxAvgAskPrice = _slice.avgAskPrice;
         }
         // Bid Volume compare
-        if (slice.totalBidVol < minTotalBidVol) {
-            minTotalBidVol = slice.totalBidVol;
+        if (_slice.totalBidVol < _minTotalBidVol) {
+            _minTotalBidVol = _slice.totalBidVol;
         }
-        else if (slice.totalBidVol > maxTotalBidVol) {
-            maxTotalBidVol = slice.totalBidVol;
+        else if (_slice.totalBidVol > _maxTotalBidVol) {
+            _maxTotalBidVol = _slice.totalBidVol;
         }
         // Ask Volume compare
-        if (slice.totalAskVol < minTotalAskVol) {
-            minTotalAskVol = slice.totalAskVol;
+        if (_slice.totalAskVol < _minTotalAskVol) {
+            _minTotalAskVol = _slice.totalAskVol;
         }
-        else if (slice.totalAskVol > maxTotalAskVol) {
-            maxTotalAskVol = slice.totalAskVol;
+        else if (_slice.totalAskVol > _maxTotalAskVol) {
+            _maxTotalAskVol = _slice.totalAskVol;
         }
         // Bid-Ask Spread compare
-        if (slice.avgBidAskSpread < minAvgBidAskSpread) {
-            minAvgBidAskSpread = slice.avgBidAskSpread;
+        if (_slice.avgBidAskSpread < _minAvgBidAskSpread) {
+            _minAvgBidAskSpread = _slice.avgBidAskSpread;
         }
-        else if (slice.avgBidAskSpread > maxAvgBidAskSpread) {
-            maxAvgBidAskSpread = slice.avgBidAskSpread;
+        else if (_slice.avgBidAskSpread > _maxAvgBidAskSpread) {
+            _maxAvgBidAskSpread = _slice.avgBidAskSpread;
         }
     }
 
-    for (const auto& slice : marketSlices) {
-        double normalizedAvgBidPrice = (slice.avgBidPrice - minAvgBidPrice) / (maxAvgBidPrice - minAvgBidPrice);
-        double normalizedAvgAskPrice = (slice.avgAskPrice - minAvgAskPrice) / (maxAvgAskPrice - minAvgAskPrice);
+    for (const auto& _slice : _marketSlices) {
+        double _normalizedAvgBidPrice = (_slice.avgBidPrice - _minAvgBidPrice) / (_maxAvgBidPrice - _minAvgBidPrice);
+        double _normalizedAvgAskPrice = (_slice.avgAskPrice - _minAvgAskPrice) / (_maxAvgAskPrice - _minAvgAskPrice);
 
-        double normalizedTotalBidVolume = (slice.totalBidVol - minTotalBidVol) / (maxTotalBidVol - minTotalBidVol);
-        double normalizedTotalAskVolume = (slice.totalAskVol - minTotalAskVol) / (maxTotalAskVol - minTotalAskVol);
+        double _normalizedTotalBidVolume = (_slice.totalBidVol - _minTotalBidVol) / (_maxTotalBidVol - _minTotalBidVol);
+        double _normalizedTotalAskVolume = (_slice.totalAskVol - _minTotalAskVol) / (_maxTotalAskVol - _minTotalAskVol);
 
-        double normalizedBidAskSpread = (slice.avgBidAskSpread - minAvgBidAskSpread) / (maxAvgBidAskSpread - minAvgBidAskSpread);
-        outputFileS << normalizedAvgBidPrice << "," << normalizedAvgAskPrice << "," << normalizedTotalBidVolume << "," << normalizedTotalAskVolume << "," << normalizedBidAskSpread << std::endl;
+        double _normalizedBidAskSpread = (_slice.avgBidAskSpread - _minAvgBidAskSpread) / (_maxAvgBidAskSpread - _minAvgBidAskSpread);
+        _outputFileS << _normalizedAvgBidPrice << "," << _normalizedAvgAskPrice << "," << _normalizedTotalBidVolume << "," << _normalizedTotalAskVolume << "," << _normalizedBidAskSpread << std::endl;
     }
-    std::cout << "Normalized " << inputFile << "." << std::endl;
+    std::cout << "Normalized " << _inputFile << "." << std::endl;
+}
+
+std::vector<std::vector<double>> createMatrix(const std::string& _inputFile) {
+    std::ifstream _data(_inputFile);
+    std::vector<std::vector<double>> _matrix;
+    std::string _stringSlice;
+
+    while (std::getline(_data, _stringSlice)) {
+        std::istringstream iss(_stringSlice);
+        std::vector<double> _dataSlice;
+        double value;
+        char comma;
+
+        while (iss >> value) {
+            _dataSlice.push_back(value);
+            iss >> comma;
+        }
+        _matrix.push_back(_dataSlice);
+    }
+    return _matrix;
+}
+
+void svmProcess(std::vector<std::vector<double>> _featureMatrix) {
+
 }
 
 int main() {
@@ -270,12 +312,15 @@ int main() {
     std::string _endpointUrl = constructCandlestickUrl(BINANCE_CANDLESTICK_ENDPOINT, _symbol, _timeInterval, _intervalType);
     */
 
-    std::string _symbol = "BTCUSDT";
+    std::string _symbol = SYMBOL;
     long _limit = 10;
     
+    double _startPrice = getPrice();
+    std::cout << "Start Price: " << _startPrice << std::endl;
+
     std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, _symbol, _limit);
 
-    for (int i = 0; i != 30; i++) {
+    for (int i = 0; i != ITERATION_NUMBER; i++) {
         std::string _http_response_data = httpRequest(_endpointUrl);
 
         if (!_http_response_data.empty()) {
@@ -291,13 +336,23 @@ int main() {
 
             double _avgBidAskSpread = avgBidAskSpread(_jsonResponseRef);
 
-            writeToCSV("data.csv", _avgBidPrice, _avgAskPrice, _totalBidVolume, _totalAskVolume, _avgBidAskSpread);
+            double _currentPrice = getPrice();
+            std::cout << "Current Price: " << _currentPrice << std::endl;
+
+            double _priceChange = _currentPrice / _startPrice;
+            std::cout << "Percent Change: " << _priceChange << std::endl;
+
+            writeToCSV("data.csv", _avgBidPrice, _avgAskPrice, _totalBidVolume, _totalAskVolume, _avgBidAskSpread, _priceChange);
 
             std::cout << "Iteration: " << std::to_string(i) << std::endl;
         }
-        std::this_thread::sleep_for(std::chrono::seconds(10));
+        
+        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
     }
+
     dataNormalizer("data.csv", "n_data.csv");
+    std::vector<std::vector<double>> _featureMatrix = createMatrix("n_data.csv");
+    svmProcess(_featureMatrix);
 
         // CLEAN DATA.CSV HERE, PRODUCE DATA_CLEANED.CSV
         // CREATE ML CODE AROUND THRESHOLD, REWARD IS START PRICE OF OPERATION VS FINAL PRICE OF OPERATION
