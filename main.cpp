@@ -21,6 +21,13 @@ const int TIME_WAIT = 30;
 
 using json = nlohmann::json;
 
+using LabelVector = std::vector<double>;
+using Sample = dlib::matrix<double, 5, 1>;
+using LinearKernel = dlib::linear_kernel<Sample>;
+using SampleVector = std::vector<Sample>;
+using Trainer = dlib::svm_c_trainer<LinearKernel>;
+using DecisionFunction = dlib::decision_function<LinearKernel>;
+
 void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice, double _totalBidVolume, double _totalAskVolume, double _avgBidAskSpread, long double _priceChange) {
     std::ofstream _file(_filename, std::ios::app);
     if (_file.is_open()) {
@@ -53,33 +60,48 @@ std::string constructGetPriceURL(std::string _base_url, std::string _symbol, lon
     return _endpointUrl;
 }
 
+/*
+namespace x { using foo = int; }
+namespace y { using foo = double; }
+void bar() {
+    using namespace x;
+    using namespace y;
+    using x::foo;
+    using lib1::http;
+    http baz;
+}
+*/
+
 std::string httpRequest(std::string _endpointUrl) {
     
     try {
-        boost::asio::io_context _io_context;
-        boost::asio::ssl::context _ssl_context(boost::asio::ssl::context::tlsv12_client);
+        using namespace boost::asio;
+        using namespace boost::beast;
+
+        io_context _io_context;
+        ssl::context _ssl_context(ssl::context::tlsv12_client);
         _ssl_context.set_default_verify_paths();
 
-        boost::asio::ssl::stream<boost::asio::ip::tcp::socket> _socket(_io_context, _ssl_context);
+        ssl::stream<ip::tcp::socket> _socket(_io_context, _ssl_context);
 
-        boost::asio::ip::tcp::resolver _resolver(_io_context);
+        ip::tcp::resolver _resolver(_io_context);
         auto const results = _resolver.resolve(BINANCE_BASE_ENDPOINT, "https");
 
-        boost::asio::connect(_socket.next_layer(), results.begin(), results.end());
-        _socket.handshake(boost::asio::ssl::stream_base::client);
+        connect(_socket.next_layer(), results.begin(), results.end());
+        _socket.handshake(ssl::stream_base::client);
 
-        boost::beast::http::request<boost::beast::http::empty_body> _http_request;
-        _http_request.method(boost::beast::http::verb::get);
+        http::request<http::empty_body> _http_request;
+        _http_request.method(http::verb::get);
         _http_request.target(_endpointUrl);
-        _http_request.set(boost::beast::http::field::host, BINANCE_BASE_ENDPOINT);
-        _http_request.set(boost::beast::http::field::user_agent, "HTTP Client with BoostBeast");
+        _http_request.set(http::field::host, BINANCE_BASE_ENDPOINT);
+        _http_request.set(http::field::user_agent, "HTTP Client with BoostBeast");
 
-        boost::beast::http::write(_socket, _http_request);
+        http::write(_socket, _http_request);
 
-        boost::beast::flat_buffer _fbuffer;
-        boost::beast::http::response<boost::beast::http::dynamic_body> _http_response;
+        flat_buffer _fbuffer;
+        http::response<http::dynamic_body> _http_response;
 
-        boost::beast::http::read(_socket, _fbuffer, _http_response);
+        http::read(_socket, _fbuffer, _http_response);
 
         int _status_code = _http_response.result_int();
 
@@ -88,9 +110,9 @@ std::string httpRequest(std::string _endpointUrl) {
             exit(EXIT_SUCCESS);
         }
 
-        auto _http_response_data = boost::beast::buffers_to_string(_http_response.body().data());
+        auto _http_response_data = buffers_to_string(_http_response.body().data());
 
-        boost::beast::error_code ec;
+        error_code ec;
         _socket.shutdown(ec);
 
         return _http_response_data;
@@ -277,30 +299,15 @@ void dataNormalizer(const std::string& _inputFile, const std::string& _outputFil
     }
 }
 
-dlib::matrix<double> processData(const std::string& _inputFile, dlib::matrix<double>& _featureMatrix, std::vector<double>& _labelVector) {
-    int _numberOfFeatures = 5;
+void processData(const std::string& _inputFile, SampleVector& _sampleVector, LabelVector& _labelVector) {
     std::ifstream _inputFileS(_inputFile);
-    std::vector<MarketSlice> _marketSlices;
     MarketSlice _marketSlice;
-    char _buffer;
+    char _delimiter;
 
-    while (_inputFileS >> _marketSlice.avgBidPrice >> _buffer >> _marketSlice.avgAskPrice >> _buffer >> _marketSlice.totalBidVol >> _buffer >> _marketSlice.totalAskVol >> _buffer >> _marketSlice.avgBidAskSpread >> _buffer >> _marketSlice.priceChange) {
-        _marketSlices.push_back(_marketSlice);
+    while (_inputFileS >> _marketSlice.avgBidPrice >> _delimiter >> _marketSlice.avgAskPrice >> _delimiter >> _marketSlice.totalBidVol >> _delimiter >> _marketSlice.totalAskVol >> _delimiter >> _marketSlice.avgBidAskSpread >> _delimiter >> _marketSlice.priceChange) {
+        _sampleVector.emplace_back(_marketSlice.avgBidPrice, _marketSlice.avgAskPrice, _marketSlice.totalBidVol, _marketSlice.totalAskVol, _marketSlice.avgBidAskSpread);
+        _labelVector.emplace_back(_marketSlice.priceChange);
     }
-    int _matrixLength = _marketSlices.size();
-    _labelVector.resize(_matrixLength);
-
-    dlib::matrix<double> _dlibFeatureMatrix(_matrixLength, _numberOfFeatures);
-
-    for (int i = 0; i < _matrixLength; i++) {
-        _dlibFeatureMatrix(i, 0) = _marketSlices[i].avgBidPrice;
-        _dlibFeatureMatrix(i, 1) = _marketSlices[i].avgAskPrice;
-        _dlibFeatureMatrix(i, 2) = _marketSlices[i].totalBidVol;
-        _dlibFeatureMatrix(i, 3) = _marketSlices[i].totalAskVol;
-        _dlibFeatureMatrix(i, 4) = _marketSlices[i].avgBidAskSpread;
-        _labelVector[i] = _marketSlices[i].priceChange;
-    }
-    return _dlibFeatureMatrix;
 }
 
 void APS_BuildTrainingSet() {
@@ -344,18 +351,19 @@ void APS_BuildTrainingSet() {
     dataNormalizer("training_data.csv", "n_training_data.csv");
 }
 
-dlib::decision_function<dlib::linear_kernel<double>> APS_CreateLFunction() {
-    std::vector<double> _labelVector;
-    dlib::matrix<double> _featureMatrix;
-    processData("n_training_data.csv", _featureMatrix, _labelVector);
 
-    dlib::svm_c_trainer<dlib::linear_kernel<double>> _svmTrainer;
-    dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = _svmTrainer.train(_featureMatrix, _labelVector);
+DecisionFunction APS_CreateLFunction() {
+    LabelVector _labelVector;
+    SampleVector _sampleVector;
+    Trainer _trainer;
+    processData("n_training_data.csv", _sampleVector, _labelVector);
 
+    DecisionFunction _learnedFunction = _trainer.train(_sampleVector, _labelVector);
     return _learnedFunction;
 }
 // NOT FINISHED
-void APS_Predictor(dlib::matrix<double>& _featureMatrix, dlib::decision_function<dlib::linear_kernel<double>>& _learnedFunction) {
+#if 0
+void APS_Predictor(dlib::matrix<double>& _featureMatrix, DecisionFunction& _learnedFunction) {
     double _normMean = dlib::mean(dlib::mat(_featureMatrix));
     double _normStandardDeviation = dlib::stddev(dlib::mat(_featureMatrix));
 
@@ -378,12 +386,11 @@ void APS_Predictor(dlib::matrix<double>& _featureMatrix, dlib::decision_function
         _dlibNewFeatures(0, 4) = _avgBidPrice;
     }
 }
-
+#endif
 int main() {
     APS_BuildTrainingSet();
-    dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = APS_CreateLFunction();
+    DecisionFunction _learnedFunction = APS_CreateLFunction();
     dlib::matrix<double> _featureMatrix;
-    APS_Predictor(_featureMatrix, _learnedFunction);
     return EXIT_SUCCESS;
 }
     /*
