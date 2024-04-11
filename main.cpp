@@ -306,31 +306,6 @@ dlib::matrix<double> processData(const std::string& _inputFile, dlib::matrix<dou
     return _dlibFeatureMatrix;
 }
 
-dlib::decision_function<dlib::linear_kernel<double>> svmProcess(dlib::matrix<double>& _featureMatrix, std::vector<double>& _labelVector) {
-    dlib::svm_c_trainer<dlib::linear_kernel<double>> _svmTrainer;
-    dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = _svmTrainer.train(_featureMatrix, _labelVector);
-    return _learnedFunction;
-}
-
-double predictor(dlib::matrix<double>& _featureMatrix, dlib::decision_function<dlib::linear_kernel<double>>& _learnedFunction) {
-    double _normMean = dlib::mean(dlib::mat(_featureMatrix));
-    double _normStandardDeviation = dlib::stddev(dlib::mat(_featureMatrix));
-    
-    std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, SYMBOL, 1);
-    std::string _http_response_data = httpRequest(_endpointUrl);
-    if (!_http_response_data.empty()) {
-        json _jsonResponse = json::parse(_http_response_data);
-        double _avgBidPrice = avgBidPrice(_jsonResponse);
-        double _avgAskPrice = avgAskPrice(_jsonResponse);
-        double _totalBidVolume = totalBidVol(_jsonResponse);
-        double _totalAskVolume = totalAskVol(_jsonResponse);
-        double _avgBidAskSpread = avgBidAskSpread(_jsonResponse);
-        dlib::matrix<double> _dlibNewFeatures(1, 5);
-
-        double _currentPrice = getPrice();
-    }
-}
-
 void APS_BuildTrainingSet() {
 
     long _limit = 10;
@@ -362,7 +337,9 @@ void APS_BuildTrainingSet() {
 
     for (int i = 0; i != ITERATION_NUMBER; i++) {
         _trainingDataSet[i].priceChange = getPrice() / _oldPrice[i];
-        std::cout << "Advanced Price: " << getPrice() << std::endl;
+        std::cout << "Old Price: " << _oldPrice[i] << std::endl;
+        std::cout << "Current Price: " << getPrice() << std::endl;
+        std::cout << "Price Change %: " << _trainingDataSet[i].priceChange << std::endl;
         std::cout << "Iteration for pricing: " << std::to_string(i) << std::endl;
         std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
     }
@@ -373,19 +350,32 @@ void APS_BuildTrainingSet() {
     dataNormalizer("training_data.csv", "n_training_data.csv");
 }
 
-/*    
-long double _priceChange = _currentPrice / _startPrice;
-std::cout << "Percent Change: " << _priceChange << std::endl;
-*/
-
-void APS_TrainWithSet() {
-
-
+dlib::decision_function<dlib::linear_kernel<double>> APS_CreateLFunction() {
+    std::vector<double> _labelVector;
+    dlib::matrix<double> _featureMatrix;
+    processData("n_training_data.csv", _featureMatrix, _labelVector);
+    dlib::svm_c_trainer<dlib::linear_kernel<double>> _svmTrainer;
+    dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = _svmTrainer.train(_featureMatrix, _labelVector);
+    return _learnedFunction;
 }
 
-void APS_PredictFromSet() {
+void APS_Predictor(dlib::matrix<double>& _featureMatrix, dlib::decision_function<dlib::linear_kernel<double>>& _learnedFunction) {
+    double _normMean = dlib::mean(dlib::mat(_featureMatrix));
+    double _normStandardDeviation = dlib::stddev(dlib::mat(_featureMatrix));
 
+    std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, SYMBOL, 1);
+    std::string _http_response_data = httpRequest(_endpointUrl);
+    if (!_http_response_data.empty()) {
+        json _jsonResponse = json::parse(_http_response_data);
 
+        double _avgBidPrice = avgBidPrice(_jsonResponse);
+        double _avgAskPrice = avgAskPrice(_jsonResponse);
+        double _totalBidVolume = totalBidVol(_jsonResponse);
+        double _totalAskVolume = totalAskVol(_jsonResponse);
+        double _avgBidAskSpread = avgBidAskSpread(_jsonResponse);
+
+        dlib::matrix<double> _dlibNewFeatures(1, 5);
+    }
 }
 
 int main() {
@@ -399,8 +389,9 @@ int main() {
     */
 
     APS_BuildTrainingSet();
-    APS_TrainWithSet();
-    APS_PredictFromSet();
+    dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = APS_CreateLFunction();
+    dlib::matrix<double> _featureMatrix;
+    APS_Predictor(_featureMatrix, _learnedFunction);
 
     return EXIT_SUCCESS;
 }
@@ -413,33 +404,30 @@ int main() {
     predict price 5 minutes in the future
     - price -
 
-
-    */
-
-        // CLEAN DATA.CSV HERE, PRODUCE DATA_CLEANED.CSV
-        // CREATE ML CODE AROUND THRESHOLD, REWARD IS START PRICE OF OPERATION VS FINAL PRICE OF OPERATION
+    // CLEAN DATA.CSV HERE, PRODUCE DATA_CLEANED.CSV
+    // CREATE ML CODE AROUND THRESHOLD, REWARD IS START PRICE OF OPERATION VS FINAL PRICE OF OPERATION
         
-        // data.csv organization: sum of bidding volume, sum of asking volume, bid-ask spread average, SMA, 
-        // make formula that creates signal BEAR or BULL
+    // data.csv organization: sum of bidding volume, sum of asking volume, bid-ask spread average, SMA, 
+    // make formula that creates signal BEAR or BULL
         
 
-        // bid volume / total volume = percentage of bid volume
-        // ask volume / total volume = percentage of ask volume
+    // bid volume / total volume = percentage of bid volume
+    // ask volume / total volume = percentage of ask volume
         
-        // trade_threshold = %volume * bid-ask spread weight
+    // trade_threshold = %volume * bid-ask spread weight
 
-        // trade_threshold variable ML, e.g. 20-80 is deadzone, sub 20 is BEAR, over 80 is BULL.
-        // trade_threshold if its 50% is over-sensitive, over-trading.
+    // trade_threshold variable ML, e.g. 20-80 is deadzone, sub 20 is BEAR, over 80 is BULL.
+    // trade_threshold if its 50% is over-sensitive, over-trading.
 
-        // reward is accuracy of indicator, if prediction is close to correct or not close to correct.
-        // success = if price moves upward after BULL signal generated, if price moves downward after BEAR signal generated.
-        // price at signal generation, price at timeframe after prediction price1 / avg price over elapsed time 
+    // reward is accuracy of indicator, if prediction is close to correct or not close to correct.
+    // success = if price moves upward after BULL signal generated, if price moves downward after BEAR signal generated.
+    // price at signal generation, price at timeframe after prediction price1 / avg price over elapsed time 
 
-        // price at signal generation, % increase is success measurement
+    // price at signal generation, % increase is success measurement
 
-        // e.g. if buy signal, and price increase 10% then success, relative percentage = amount of success
+    // e.g. if buy signal, and price increase 10% then success, relative percentage = amount of success
 
-        // trade confidence calculated by narrow spread vs wide spread, current spread vs average overall spread in timeframe (e.g. monthly spread average)
+    // trade confidence calculated by narrow spread vs wide spread, current spread vs average overall spread in timeframe (e.g. monthly spread average)
     
     // 30 intervals of 10 seconds for total runtime of 5 minutes
     
@@ -460,5 +448,5 @@ int main() {
     // High Liquidity = strong confidence in asset
     // Low Liquidity = weak confidence in asset
 
-    // Review csv file, and run ML on collected data.
+    */
 
