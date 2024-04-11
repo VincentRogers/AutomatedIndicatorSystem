@@ -5,6 +5,7 @@
 #include <boost/asio/ssl.hpp>
 #include <nlohmann/json.hpp>
 #include <dlib/svm.h>
+#include <dlib/matrix.h>
 
 /*
 Data Cleaning
@@ -279,79 +280,141 @@ void dataNormalizer(const std::string& _inputFile, const std::string& _outputFil
     std::cout << "Normalized " << _inputFile << "." << std::endl;
 }
 
-std::vector<std::vector<double>> createMatrix(const std::string& _inputFile) {
-    std::ifstream _data(_inputFile);
-    std::vector<std::vector<double>> _matrix;
-    std::string _stringSlice;
+dlib::matrix<double> processData(const std::string& _inputFile, dlib::matrix<double>& _featureMatrix, std::vector<double>& _labelVector) {
+    int _numberOfFeatures = 5;
+    std::ifstream _inputFileS(_inputFile);
+    std::vector<MarketSlice> _marketSlices;
+    MarketSlice _marketSlice;
+    char _buffer;
 
-    while (std::getline(_data, _stringSlice)) {
-        std::istringstream iss(_stringSlice);
-        std::vector<double> _dataSlice;
-        double value;
-        char comma;
-
-        while (iss >> value) {
-            _dataSlice.push_back(value);
-            iss >> comma;
-        }
-        _matrix.push_back(_dataSlice);
+    while (_inputFileS >> _marketSlice.avgBidPrice >> _buffer >> _marketSlice.avgAskPrice >> _buffer >> _marketSlice.totalBidVol >> _buffer >> _marketSlice.totalAskVol >> _buffer >> _marketSlice.avgBidAskSpread >> _buffer >> _marketSlice.priceChange) {
+        _marketSlices.push_back(_marketSlice);
     }
-    return _matrix;
+    int _matrixLength = _marketSlices.size();
+    _labelVector.resize(_matrixLength);
+
+    dlib::matrix<double> _dlibFeatureMatrix(_matrixLength, _numberOfFeatures);
+
+    for (int i = 0; i != _matrixLength; i++) {
+        _dlibFeatureMatrix(i, 0) = _marketSlices[i].avgBidPrice;
+        _dlibFeatureMatrix(i, 1) = _marketSlices[i].avgAskPrice;
+        _dlibFeatureMatrix(i, 2) = _marketSlices[i].totalBidVol;
+        _dlibFeatureMatrix(i, 3) = _marketSlices[i].totalAskVol;
+        _dlibFeatureMatrix(i, 4) = _marketSlices[i].avgBidAskSpread;
+        _labelVector[i] = _marketSlices[i].priceChange;
+    }
+    return _dlibFeatureMatrix;
 }
 
-void svmProcess(std::vector<std::vector<double>> _featureMatrix) {
-
+dlib::decision_function<dlib::linear_kernel<double>> svmProcess(dlib::matrix<double>& _featureMatrix, std::vector<double>& _labelVector) {
+    dlib::svm_c_trainer<dlib::linear_kernel<double>> _svmTrainer;
+    dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = _svmTrainer.train(_featureMatrix, _labelVector);
+    return _learnedFunction;
 }
 
-int main() {
-    /*
-    std::string _symbol = "BTC-240328-70000-C";
-    long _timeInterval = 1;
-    std::string _intervalType = "m";
-    std::string _endpointUrl = constructCandlestickUrl(BINANCE_CANDLESTICK_ENDPOINT, _symbol, _timeInterval, _intervalType);
-    */
-
-    std::string _symbol = SYMBOL;
-    long _limit = 10;
+double predictor(dlib::matrix<double>& _featureMatrix, dlib::decision_function<dlib::linear_kernel<double>>& _learnedFunction) {
+    double _normMean = dlib::mean(dlib::mat(_featureMatrix));
+    double _normStandardDeviation = dlib::stddev(dlib::mat(_featureMatrix));
     
-    double _startPrice = getPrice();
-    std::cout << "Start Price: " << _startPrice << std::endl;
+    std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, SYMBOL, 1);
+    std::string _http_response_data = httpRequest(_endpointUrl);
+    if (!_http_response_data.empty()) {
+        json _jsonResponse = json::parse(_http_response_data);
+        double _avgBidPrice = avgBidPrice(_jsonResponse);
+        double _avgAskPrice = avgAskPrice(_jsonResponse);
+        double _totalBidVolume = totalBidVol(_jsonResponse);
+        double _totalAskVolume = totalAskVol(_jsonResponse);
+        double _avgBidAskSpread = avgBidAskSpread(_jsonResponse);
+        dlib::matrix<double> _dlibNewFeatures(1, 5);
 
-    std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, _symbol, _limit);
+        double _currentPrice = getPrice();
+    }
+}
+
+void APS_BuildTrainingSet() {
+
+    long _limit = 10;
+    std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, SYMBOL, _limit);
+
+    std::vector<MarketSlice> _trainingDataSet;
+    std::vector<double> _oldPrice;
+    MarketSlice _marketSlice;
+    char _buffer;
 
     for (int i = 0; i != ITERATION_NUMBER; i++) {
         std::string _http_response_data = httpRequest(_endpointUrl);
 
         if (!_http_response_data.empty()) {
-
             json _jsonResponse = json::parse(_http_response_data);
-            json& _jsonResponseRef = _jsonResponse;
 
-            double _avgBidPrice = avgBidPrice(_jsonResponseRef);
-            double _avgAskPrice = avgAskPrice(_jsonResponseRef);
+            _trainingDataSet[i].avgBidPrice = avgBidPrice(_jsonResponse);
+            _trainingDataSet[i].avgAskPrice = avgAskPrice(_jsonResponse);
+            _trainingDataSet[i].totalBidVol = totalBidVol(_jsonResponse);
+            _trainingDataSet[i].totalAskVol = totalAskVol(_jsonResponse);
+            _trainingDataSet[i].avgBidAskSpread = avgBidAskSpread(_jsonResponse);
+            _oldPrice.push_back(getPrice());
 
-            double _totalBidVolume = totalBidVol(_jsonResponseRef);
-            double _totalAskVolume = totalAskVol(_jsonResponseRef);
-
-            double _avgBidAskSpread = avgBidAskSpread(_jsonResponseRef);
-
-            double _currentPrice = getPrice();
-            std::cout << "Current Price: " << _currentPrice << std::endl;
-
-            long double _priceChange = _currentPrice / _startPrice;
-            std::cout << "Percent Change: " << _priceChange << std::endl;
-
-            writeToCSV("data.csv", _avgBidPrice, _avgAskPrice, _totalBidVolume, _totalAskVolume, _avgBidAskSpread, _priceChange);
-
-            std::cout << "Iteration: " << std::to_string(i) << std::endl;
+            std::cout << "Current Price: " << getPrice() << std::endl;
+            std::cout << "Iteration for orderbook: " << std::to_string(i) << std::endl;
         }
-        
         std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
     }
 
-    dataNormalizer("data.csv", "n_data.csv");
-    std::vector<std::vector<double>> _featureMatrix = createMatrix("n_data.csv");
-    svmProcess(_featureMatrix);
+    for (int i = 0; i != ITERATION_NUMBER; i++) {
+        _trainingDataSet[i].priceChange = getPrice() / _oldPrice[i];
+        std::cout << "Advanced Price: " << getPrice() << std::endl;
+        std::cout << "Iteration for pricing: " << std::to_string(i) << std::endl;
+        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
+    }
+    
+    for (int i = 0; i != _trainingDataSet.size(); i++) {
+        writeToCSV("training_data.csv", _trainingDataSet[i].avgBidPrice, _trainingDataSet[i].avgAskPrice, _trainingDataSet[i].totalBidVol, _trainingDataSet[i].totalAskVol, _trainingDataSet[i].avgBidAskSpread, _trainingDataSet[i].priceChange);
+    }
+    dataNormalizer("training_data.csv", "n_training_data.csv");
+}
+
+/*    
+long double _priceChange = _currentPrice / _startPrice;
+std::cout << "Percent Change: " << _priceChange << std::endl;
+*/
+
+void APS_TrainWithSet() {
+
+
+}
+
+void APS_PredictFromSet() {
+
+
+}
+
+int main() {
+    /*
+    get order book data, then get price x amount of time from that point < calculate price% change is then the label
+    1.0) data collection ORDER BOOK DATA + cur price
+    1.1) wait 5 minutes then get cur price, calculate %price change and add to csv
+    1.2) normalize new produced data set
+    2) training, execute svm with produced data set to create learning function
+    3) prediction, get order book information, apply function, produce price prediction
+    */
+
+    APS_BuildTrainingSet();
+    APS_TrainWithSet();
+    APS_PredictFromSet();
+
+    return EXIT_SUCCESS;
+}
+
+    /*
+    order book + price vs price 5 minutes from then +  %price change
+    
+    0
+    5 minutes process learning
+    predict price 5 minutes in the future
+    - price -
+
+
+    */
 
         // CLEAN DATA.CSV HERE, PRODUCE DATA_CLEANED.CSV
         // CREATE ML CODE AROUND THRESHOLD, REWARD IS START PRICE OF OPERATION VS FINAL PRICE OF OPERATION
@@ -399,5 +462,3 @@ int main() {
 
     // Review csv file, and run ML on collected data.
 
-    return EXIT_SUCCESS;
-}
