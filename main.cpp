@@ -7,14 +7,6 @@
 #include <dlib/svm.h>
 #include <dlib/matrix.h>
 
-/*
-Data Cleaning
-SMA integration
-OrderBook Analysis COMPARE VOLUME FOR THE PAST 5 MINUTES
-WRITEUP
-TensorFlow..?
-*/
-
 const std::string BINANCE_BASE_ENDPOINT = "api.binance.com";
 const std::string BINANCE_TIME_ENDPOINT = "/api/v3/time";
 const std::string BINANCE_CANDLESTICK_ENDPOINT = "/api/v3/klines";
@@ -102,7 +94,6 @@ std::string httpRequest(std::string _endpointUrl) {
         _socket.shutdown(ec);
 
         return _http_response_data;
-
     }
     catch (std::exception const& e) {
         std::cerr << "Error: " << e.what() << std::endl;
@@ -203,81 +194,87 @@ void dataNormalizer(const std::string& _inputFile, const std::string& _outputFil
     std::ifstream _inputFileS(_inputFile);
     std::ofstream _outputFileS(_outputFile);
     
-    std::vector<MarketSlice> _marketSlices;
-    MarketSlice _marketSlice;
-    char _buffer;
+    if (_inputFileS.is_open() && _outputFileS.is_open()) {
 
-    while (_inputFileS >> _marketSlice.avgBidPrice >> _buffer >> _marketSlice.avgAskPrice >> _buffer >> _marketSlice.totalBidVol >> _buffer >> _marketSlice.totalAskVol >> _buffer >> _marketSlice.avgBidAskSpread >> _buffer >> _marketSlice.priceChange) {
-        _marketSlices.push_back(_marketSlice);
+        std::vector<MarketSlice> _marketSlices;
+        MarketSlice _marketSlice;
+        char _buffer;
+
+        while (_inputFileS >> _marketSlice.avgBidPrice >> _buffer >> _marketSlice.avgAskPrice >> _buffer >> _marketSlice.totalBidVol >> _buffer >> _marketSlice.totalAskVol >> _buffer >> _marketSlice.avgBidAskSpread >> _buffer >> _marketSlice.priceChange) {
+            _marketSlices.push_back(_marketSlice);
+        }
+
+        double _minAvgBidPrice = _marketSlices[0].avgBidPrice;
+        double _maxAvgBidPrice = _marketSlices[0].avgBidPrice;
+
+        double _minAvgAskPrice = _marketSlices[0].avgAskPrice;
+        double _maxAvgAskPrice = _marketSlices[0].avgAskPrice;
+
+        double _minTotalBidVol = _marketSlices[0].totalBidVol;
+        double _maxTotalBidVol = _marketSlices[0].totalBidVol;
+
+        double _minTotalAskVol = _marketSlices[0].totalAskVol;
+        double _maxTotalAskVol = _marketSlices[0].totalAskVol;
+
+        double _minAvgBidAskSpread = _marketSlices[0].avgBidAskSpread;
+        double _maxAvgBidAskSpread = _marketSlices[0].avgBidAskSpread;
+
+        for (const auto& _slice : _marketSlices) {
+
+            if (_slice.avgBidPrice < _minAvgBidPrice) {
+                _minAvgBidPrice = _slice.avgBidPrice;
+            }
+            else if (_slice.avgBidPrice > _maxAvgBidPrice) {
+                _maxAvgBidPrice = _slice.avgBidPrice;
+            }
+
+            if (_slice.avgAskPrice < _minAvgAskPrice) {
+                _minAvgAskPrice = _slice.avgAskPrice;
+            }
+            else if (_slice.avgAskPrice > _maxAvgAskPrice) {
+                _maxAvgAskPrice = _slice.avgAskPrice;
+            }
+
+            if (_slice.totalBidVol < _minTotalBidVol) {
+                _minTotalBidVol = _slice.totalBidVol;
+            }
+            else if (_slice.totalBidVol > _maxTotalBidVol) {
+                _maxTotalBidVol = _slice.totalBidVol;
+            }
+
+            if (_slice.totalAskVol < _minTotalAskVol) {
+                _minTotalAskVol = _slice.totalAskVol;
+            }
+            else if (_slice.totalAskVol > _maxTotalAskVol) {
+                _maxTotalAskVol = _slice.totalAskVol;
+            }
+
+            if (_slice.avgBidAskSpread < _minAvgBidAskSpread) {
+                _minAvgBidAskSpread = _slice.avgBidAskSpread;
+            }
+            else if (_slice.avgBidAskSpread > _maxAvgBidAskSpread) {
+                _maxAvgBidAskSpread = _slice.avgBidAskSpread;
+            }
+        }
+
+        for (const auto& _slice : _marketSlices) {
+            double _normalizedAvgBidPrice = (_slice.avgBidPrice - _minAvgBidPrice) / (_maxAvgBidPrice - _minAvgBidPrice);
+            double _normalizedAvgAskPrice = (_slice.avgAskPrice - _minAvgAskPrice) / (_maxAvgAskPrice - _minAvgAskPrice);
+
+            double _normalizedTotalBidVolume = (_slice.totalBidVol - _minTotalBidVol) / (_maxTotalBidVol - _minTotalBidVol);
+            double _normalizedTotalAskVolume = (_slice.totalAskVol - _minTotalAskVol) / (_maxTotalAskVol - _minTotalAskVol);
+
+            double _normalizedBidAskSpread = (_slice.avgBidAskSpread - _minAvgBidAskSpread) / (_maxAvgBidAskSpread - _minAvgBidAskSpread);
+
+            long double _priceChange = _slice.priceChange;
+
+            _outputFileS << _normalizedAvgBidPrice << "," << _normalizedAvgAskPrice << "," << _normalizedTotalBidVolume << "," << _normalizedTotalAskVolume << "," << _normalizedBidAskSpread << "," << _priceChange << std::endl;
+        }
+        std::cout << "Normalized " << _inputFile << "." << std::endl;
     }
-
-    double _minAvgBidPrice = _marketSlices[0].avgBidPrice;
-    double _maxAvgBidPrice = _marketSlices[0].avgBidPrice;
-
-    double _minAvgAskPrice = _marketSlices[0].avgAskPrice;
-    double _maxAvgAskPrice = _marketSlices[0].avgAskPrice;
-
-    double _minTotalBidVol = _marketSlices[0].totalBidVol;
-    double _maxTotalBidVol = _marketSlices[0].totalBidVol;
-
-    double _minTotalAskVol = _marketSlices[0].totalAskVol;
-    double _maxTotalAskVol = _marketSlices[0].totalAskVol;
-
-    double _minAvgBidAskSpread = _marketSlices[0].avgBidAskSpread;
-    double _maxAvgBidAskSpread = _marketSlices[0].avgBidAskSpread;
-
-    for (const auto& _slice : _marketSlices) {
-        // Bid Price compare
-        if (_slice.avgBidPrice < _minAvgBidPrice) {
-            _minAvgBidPrice = _slice.avgBidPrice;
-        }
-        else if (_slice.avgBidPrice > _maxAvgBidPrice) {
-            _maxAvgBidPrice = _slice.avgBidPrice;
-        }
-        // Ask Price compare
-        if (_slice.avgAskPrice < _minAvgAskPrice) {
-            _minAvgAskPrice = _slice.avgAskPrice;
-        }
-        else if (_slice.avgAskPrice > _maxAvgAskPrice) {
-            _maxAvgAskPrice = _slice.avgAskPrice;
-        }
-        // Bid Volume compare
-        if (_slice.totalBidVol < _minTotalBidVol) {
-            _minTotalBidVol = _slice.totalBidVol;
-        }
-        else if (_slice.totalBidVol > _maxTotalBidVol) {
-            _maxTotalBidVol = _slice.totalBidVol;
-        }
-        // Ask Volume compare
-        if (_slice.totalAskVol < _minTotalAskVol) {
-            _minTotalAskVol = _slice.totalAskVol;
-        }
-        else if (_slice.totalAskVol > _maxTotalAskVol) {
-            _maxTotalAskVol = _slice.totalAskVol;
-        }
-        // Bid-Ask Spread compare
-        if (_slice.avgBidAskSpread < _minAvgBidAskSpread) {
-            _minAvgBidAskSpread = _slice.avgBidAskSpread;
-        }
-        else if (_slice.avgBidAskSpread > _maxAvgBidAskSpread) {
-            _maxAvgBidAskSpread = _slice.avgBidAskSpread;
-        }
+    else {
+        std::cerr << "Failed to Open Input or Output File." << std::endl;
     }
-
-    for (const auto& _slice : _marketSlices) {
-        double _normalizedAvgBidPrice = (_slice.avgBidPrice - _minAvgBidPrice) / (_maxAvgBidPrice - _minAvgBidPrice);
-        double _normalizedAvgAskPrice = (_slice.avgAskPrice - _minAvgAskPrice) / (_maxAvgAskPrice - _minAvgAskPrice);
-
-        double _normalizedTotalBidVolume = (_slice.totalBidVol - _minTotalBidVol) / (_maxTotalBidVol - _minTotalBidVol);
-        double _normalizedTotalAskVolume = (_slice.totalAskVol - _minTotalAskVol) / (_maxTotalAskVol - _minTotalAskVol);
-
-        double _normalizedBidAskSpread = (_slice.avgBidAskSpread - _minAvgBidAskSpread) / (_maxAvgBidAskSpread - _minAvgBidAskSpread);
-
-        long double _priceChange = _slice.priceChange;
-
-        _outputFileS << _normalizedAvgBidPrice << "," << _normalizedAvgAskPrice << "," << _normalizedTotalBidVolume << "," << _normalizedTotalAskVolume << "," << _normalizedBidAskSpread << "," << _priceChange << std::endl;
-    }
-    std::cout << "Normalized " << _inputFile << "." << std::endl;
 }
 
 dlib::matrix<double> processData(const std::string& _inputFile, dlib::matrix<double>& _featureMatrix, std::vector<double>& _labelVector) {
@@ -295,7 +292,7 @@ dlib::matrix<double> processData(const std::string& _inputFile, dlib::matrix<dou
 
     dlib::matrix<double> _dlibFeatureMatrix(_matrixLength, _numberOfFeatures);
 
-    for (int i = 0; i != _matrixLength; i++) {
+    for (int i = 0; i < _matrixLength; i++) {
         _dlibFeatureMatrix(i, 0) = _marketSlices[i].avgBidPrice;
         _dlibFeatureMatrix(i, 1) = _marketSlices[i].avgAskPrice;
         _dlibFeatureMatrix(i, 2) = _marketSlices[i].totalBidVol;
@@ -307,16 +304,13 @@ dlib::matrix<double> processData(const std::string& _inputFile, dlib::matrix<dou
 }
 
 void APS_BuildTrainingSet() {
-
     long _limit = 10;
     std::string _endpointUrl = constructOrderBookUrl(BINANCE_ORDERBOOK_ENDPOINT, SYMBOL, _limit);
 
-    std::vector<MarketSlice> _trainingDataSet;
+    std::vector<MarketSlice> _trainingDataSet(ITERATION_NUMBER);
     std::vector<double> _oldPrice;
-    MarketSlice _marketSlice;
-    char _buffer;
 
-    for (int i = 0; i != ITERATION_NUMBER; i++) {
+    for (int i = 0; i < ITERATION_NUMBER; i++) {
         std::string _http_response_data = httpRequest(_endpointUrl);
 
         if (!_http_response_data.empty()) {
@@ -335,7 +329,7 @@ void APS_BuildTrainingSet() {
         std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
     }
 
-    for (int i = 0; i != ITERATION_NUMBER; i++) {
+    for (int i = 0; i < ITERATION_NUMBER; i++) {
         _trainingDataSet[i].priceChange = getPrice() / _oldPrice[i];
         std::cout << "Old Price: " << _oldPrice[i] << std::endl;
         std::cout << "Current Price: " << getPrice() << std::endl;
@@ -344,7 +338,7 @@ void APS_BuildTrainingSet() {
         std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
     }
     
-    for (int i = 0; i != _trainingDataSet.size(); i++) {
+    for (int i = 0; i < _trainingDataSet.size(); i++) {
         writeToCSV("training_data.csv", _trainingDataSet[i].avgBidPrice, _trainingDataSet[i].avgAskPrice, _trainingDataSet[i].totalBidVol, _trainingDataSet[i].totalAskVol, _trainingDataSet[i].avgBidAskSpread, _trainingDataSet[i].priceChange);
     }
     dataNormalizer("training_data.csv", "n_training_data.csv");
@@ -354,11 +348,13 @@ dlib::decision_function<dlib::linear_kernel<double>> APS_CreateLFunction() {
     std::vector<double> _labelVector;
     dlib::matrix<double> _featureMatrix;
     processData("n_training_data.csv", _featureMatrix, _labelVector);
+
     dlib::svm_c_trainer<dlib::linear_kernel<double>> _svmTrainer;
     dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = _svmTrainer.train(_featureMatrix, _labelVector);
+
     return _learnedFunction;
 }
-
+// NOT FINISHED
 void APS_Predictor(dlib::matrix<double>& _featureMatrix, dlib::decision_function<dlib::linear_kernel<double>>& _learnedFunction) {
     double _normMean = dlib::mean(dlib::mat(_featureMatrix));
     double _normStandardDeviation = dlib::stddev(dlib::mat(_featureMatrix));
@@ -375,10 +371,21 @@ void APS_Predictor(dlib::matrix<double>& _featureMatrix, dlib::decision_function
         double _avgBidAskSpread = avgBidAskSpread(_jsonResponse);
 
         dlib::matrix<double> _dlibNewFeatures(1, 5);
+        _dlibNewFeatures(0, 0) = _avgBidPrice;
+        _dlibNewFeatures(0, 1) = _avgBidPrice;
+        _dlibNewFeatures(0, 2) = _avgBidPrice;
+        _dlibNewFeatures(0, 3) = _avgBidPrice;
+        _dlibNewFeatures(0, 4) = _avgBidPrice;
     }
 }
 
 int main() {
+    APS_BuildTrainingSet();
+    dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = APS_CreateLFunction();
+    dlib::matrix<double> _featureMatrix;
+    APS_Predictor(_featureMatrix, _learnedFunction);
+    return EXIT_SUCCESS;
+}
     /*
     get order book data, then get price x amount of time from that point < calculate price% change is then the label
     1.0) data collection ORDER BOOK DATA + cur price
@@ -386,17 +393,7 @@ int main() {
     1.2) normalize new produced data set
     2) training, execute svm with produced data set to create learning function
     3) prediction, get order book information, apply function, produce price prediction
-    */
-
-    APS_BuildTrainingSet();
-    dlib::decision_function<dlib::linear_kernel<double>> _learnedFunction = APS_CreateLFunction();
-    dlib::matrix<double> _featureMatrix;
-    APS_Predictor(_featureMatrix, _learnedFunction);
-
-    return EXIT_SUCCESS;
-}
-
-    /*
+    
     order book + price vs price 5 minutes from then +  %price change
     
     0
