@@ -16,8 +16,8 @@ const std::string BINANCE_PORT = "443";
 const std::string API_KEY = "";
 const std::string API_SECRET = "";
 const std::string SYMBOL = "BTCUSDT";
-const int ITERATION_NUMBER = 20;
-const int TIME_WAIT = 30;
+const int ITERATION_NUMBER = 10;
+const int TIME_WAIT_S = 5;
 long double GAMMA_VALUE = 0.00025;
 long double C_VALUE = 5;
 long double EPSILON_SENSITIVITY_VALUE = 0.001;
@@ -43,6 +43,21 @@ void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice,
         _file << _totalAskVolume << ",";
         _file << _avgBidAskSpread << ",";
         _file << _priceChange << "\n";
+        _file.close();
+    }
+    else {
+        std::cout << "Could not Open file." << std::endl;
+    }
+}
+
+void writeResult(std::string _filename, double& _originalPrice, double& _predictedPrice, double& _actualPrice, long double& _priceChange) {
+    std::ofstream _file(_filename, std::ios::app);
+    if (_file.is_open()) {
+        _file << _originalPrice << ",";
+        _file << _predictedPrice << ",";
+        _file << _actualPrice << ",";
+        _file << _priceChange << ",";
+        _file << "SPACER" << ",";
         _file.close();
     }
     else {
@@ -344,7 +359,7 @@ void APS_BuildTrainingSet() {
             std::cout << "Current Price: " << getPrice() << std::endl;
             std::cout << "Iteration for orderbook: " << std::to_string(i) << std::endl;
         }
-        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
+        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT_S));
     }
 
     for (int i = 0; i < ITERATION_NUMBER; i++) {
@@ -353,7 +368,7 @@ void APS_BuildTrainingSet() {
         std::cout << "Current Price: " << getPrice() << std::endl;
         std::cout << "Price Change %: " << _trainingDataSet[i].priceChange << std::endl;
         std::cout << "Iteration for pricing: " << std::to_string(i) << std::endl;
-        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
+        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT_S));
     }
     
     for (int i = 0; i < _trainingDataSet.size(); i++) {
@@ -451,19 +466,24 @@ void APS_Predictor(Sample& _featureMatrix, DecisionFunction& _learnedFunction) {
         double _currentPrice = getPrice();
         double _calculatedPrice = _currentPrice * _prediction;
 
+        std::cout << "Current Price is: " << getPrice() << std::endl;
         std::cout << "I predict that the price will change by: " << _prediction << std::endl;
         std::cout << "So the price will be: " << _calculatedPrice << std::endl;
+
+        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT_S));
+
+        double _actualPrice = getPrice();
+        std::cout << "Actual Price: " << getPrice() << std::endl;
+        writeResult("results.csv", _currentPrice, _calculatedPrice, _actualPrice , _prediction);
     }
 }
 
 int main() {
-    //APS_BuildTrainingSet();
-    //APS_CrossValidation();
+    APS_BuildTrainingSet();
+    APS_CrossValidation();
     DecisionFunction _learnedFunction = APS_CreateLFunction();
     Sample _featureMatrix;
     APS_Predictor(_featureMatrix, _learnedFunction);
-    std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
-    std::cout << "Actual Price: " << getPrice() << std::endl;
     return EXIT_SUCCESS;
 }
 
