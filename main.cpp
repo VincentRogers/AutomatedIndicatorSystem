@@ -44,7 +44,6 @@ void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice,
         _file << _avgBidAskSpread << ",";
         _file << _priceChange << "\n";
         _file.close();
-        std::cout << "Written to File." << std::endl;
     }
     else {
         std::cout << "Could not Open file." << std::endl;
@@ -414,7 +413,7 @@ DecisionFunction APS_CreateLFunction() {
     return _learnedFunction;
 }
 
-void APS_Predictor(dlib::matrix<double>& _featureMatrix, DecisionFunction& _learnedFunction) {
+void APS_Predictor(Sample& _featureMatrix, DecisionFunction& _learnedFunction) {
     double _normMean = dlib::mean(dlib::mat(_featureMatrix));
     double _normStandardDeviation = dlib::stddev(dlib::mat(_featureMatrix));
 
@@ -431,21 +430,21 @@ void APS_Predictor(dlib::matrix<double>& _featureMatrix, DecisionFunction& _lear
 
         Sample _newFeatures;
         _newFeatures(0, 0) = _avgBidPrice;
-        _newFeatures(0, 1) = _avgAskPrice;
-        _newFeatures(0, 2) = _totalBidVolume;
-        _newFeatures(0, 3) = _totalAskVolume;
-        _newFeatures(0, 4) = _avgBidAskSpread;
+        _newFeatures(1, 0) = _avgAskPrice;
+        _newFeatures(2, 0) = _totalBidVolume;
+        _newFeatures(3, 0) = _totalAskVolume;
+        _newFeatures(4, 0) = _avgBidAskSpread;
 
         _newFeatures(0, 0) -= _normMean;
         _newFeatures(0, 0) /= _normStandardDeviation;
-        _newFeatures(0, 1) -= _normMean;
-        _newFeatures(0, 1) /= _normStandardDeviation;
-        _newFeatures(0, 2) -= _normMean;
-        _newFeatures(0, 2) /= _normStandardDeviation;
-        _newFeatures(0, 3) -= _normMean;
-        _newFeatures(0, 3) /= _normStandardDeviation;
-        _newFeatures(0, 4) -= _normMean;
-        _newFeatures(0, 4) /= _normStandardDeviation;
+        _newFeatures(1, 0) -= _normMean;
+        _newFeatures(1, 0) /= _normStandardDeviation;
+        _newFeatures(2, 0) -= _normMean;
+        _newFeatures(2, 0) /= _normStandardDeviation;
+        _newFeatures(3, 0) -= _normMean;
+        _newFeatures(3, 0) /= _normStandardDeviation;
+        _newFeatures(4, 0) -= _normMean;
+        _newFeatures(4, 0) /= _normStandardDeviation;
 
         long double _prediction = _learnedFunction(_newFeatures);
 
@@ -458,10 +457,10 @@ void APS_Predictor(dlib::matrix<double>& _featureMatrix, DecisionFunction& _lear
 }
 
 int main() {
-    APS_BuildTrainingSet();
-    APS_CrossValidation();
+    //APS_BuildTrainingSet();
+    //APS_CrossValidation();
     DecisionFunction _learnedFunction = APS_CreateLFunction();
-    dlib::matrix<double> _featureMatrix;
+    Sample _featureMatrix;
     APS_Predictor(_featureMatrix, _learnedFunction);
     std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
     std::cout << "Actual Price: " << getPrice() << std::endl;
