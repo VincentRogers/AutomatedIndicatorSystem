@@ -385,11 +385,9 @@ void APS_CrossValidation() {
 
                 auto _results = dlib::cross_validate_regression_trainer(_trainer, _sampleVector, _labelVector, 6);
                 long double _MSEValue = _results(0);
-                std::cout << "MSE Value: " << _MSEValue << std::endl;
 
                 if (_MSEValue < _bestMSEValue) {
                     _bestMSEValue = _MSEValue;
-                    std::cout << "New MSE Value: " << _bestMSEValue << std::endl;
                     _bestGamma = _gamma;
                     _bestC = _c;
                     _bestEpsilonValue = _epsilon;
@@ -431,18 +429,26 @@ void APS_Predictor(dlib::matrix<double>& _featureMatrix, DecisionFunction& _lear
         double _totalAskVolume = totalAskVol(_jsonResponse);
         double _avgBidAskSpread = avgBidAskSpread(_jsonResponse);
 
-        dlib::matrix<double> _newFeatures(1, 5);
+        Sample _newFeatures;
         _newFeatures(0, 0) = _avgBidPrice;
         _newFeatures(0, 1) = _avgAskPrice;
         _newFeatures(0, 2) = _totalBidVolume;
         _newFeatures(0, 3) = _totalAskVolume;
         _newFeatures(0, 4) = _avgBidAskSpread;
 
-        for (long i = 0; i < _newFeatures.nc(); ++i) {
-            _newFeatures(0, i) -= _normMean;
-            _newFeatures(0, i) /= _normStandardDeviation;
-        }
+        _newFeatures(0, 0) -= _normMean;
+        _newFeatures(0, 0) /= _normStandardDeviation;
+        _newFeatures(0, 1) -= _normMean;
+        _newFeatures(0, 1) /= _normStandardDeviation;
+        _newFeatures(0, 2) -= _normMean;
+        _newFeatures(0, 2) /= _normStandardDeviation;
+        _newFeatures(0, 3) -= _normMean;
+        _newFeatures(0, 3) /= _normStandardDeviation;
+        _newFeatures(0, 4) -= _normMean;
+        _newFeatures(0, 4) /= _normStandardDeviation;
+
         long double _prediction = _learnedFunction(_newFeatures);
+
         double _currentPrice = getPrice();
         double _calculatedPrice = _currentPrice * _prediction;
 
