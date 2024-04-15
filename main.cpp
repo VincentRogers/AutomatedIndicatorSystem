@@ -457,7 +457,7 @@ int main() {
     DecisionFunction _learnedFunction = APS_CreateLFunction();
     dlib::matrix<double> _featureMatrix;
     APS_Predictor(_featureMatrix, _learnedFunction);
-    std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT*ITERATION_NUMBER));
+    std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT));
     std::cout << "Actual Price: " << getPrice() << std::endl;
     return EXIT_SUCCESS;
 }
