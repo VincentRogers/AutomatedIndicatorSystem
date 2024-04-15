@@ -16,8 +16,8 @@ const std::string BINANCE_PORT = "443";
 const std::string API_KEY = "";
 const std::string API_SECRET = "";
 const std::string SYMBOL = "BTCUSDT";
-const int ITERATION_NUMBER = 10;
-const int TIME_WAIT_S = 5;
+const int ITERATION_NUMBER = 120;
+const int TIME_WAIT_S = 60;
 long double GAMMA_VALUE = 0.00025;
 long double C_VALUE = 5;
 long double EPSILON_SENSITIVITY_VALUE = 0.001;
@@ -470,7 +470,7 @@ void APS_Predictor(Sample& _featureMatrix, DecisionFunction& _learnedFunction) {
         std::cout << "I predict that the price will change by: " << _prediction << std::endl;
         std::cout << "So the price will be: " << _calculatedPrice << std::endl;
 
-        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT_S));
+        std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT_S*ITERATION_NUMBER));
 
         double _actualPrice = getPrice();
         std::cout << "Actual Price: " << getPrice() << std::endl;
