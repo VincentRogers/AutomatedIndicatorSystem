@@ -18,15 +18,21 @@ const std::string API_SECRET = "";
 const std::string SYMBOL = "BTCUSDT";
 const int ITERATION_NUMBER = 20;
 const int TIME_WAIT = 30;
+long double GAMMA_VALUE = 0.00025;
+long double C_VALUE = 5;
+long double EPSILON_SENSITIVITY_VALUE = 0.001;
 
 using json = nlohmann::json;
 
 using LabelVector = std::vector<double>;
+
 using Sample = dlib::matrix<double, 5, 1>;
-using LinearKernel = dlib::linear_kernel<Sample>;
+using RadialKernel = dlib::radial_basis_kernel<Sample>;
+using Trainer = dlib::svr_trainer<RadialKernel>;
+
 using SampleVector = std::vector<Sample>;
-using Trainer = dlib::svm_c_trainer<LinearKernel>;
-using DecisionFunction = dlib::decision_function<LinearKernel>;
+using LinearKernel = dlib::linear_kernel<Sample>;
+using DecisionFunction = dlib::decision_function<RadialKernel>;
 
 void writeToCSV(std::string _filename, double _avgBidPrice, double _avgAskPrice, double _totalBidVolume, double _totalAskVolume, double _avgBidAskSpread, long double _priceChange) {
     std::ofstream _file(_filename, std::ios::app);
@@ -220,9 +226,9 @@ void dataNormalizer(const std::string& _inputFile, const std::string& _outputFil
 
         std::vector<MarketSlice> _marketSlices;
         MarketSlice _marketSlice;
-        char _buffer;
+        char _delimiter;
 
-        while (_inputFileS >> _marketSlice.avgBidPrice >> _buffer >> _marketSlice.avgAskPrice >> _buffer >> _marketSlice.totalBidVol >> _buffer >> _marketSlice.totalAskVol >> _buffer >> _marketSlice.avgBidAskSpread >> _buffer >> _marketSlice.priceChange) {
+        while (_inputFileS >> _marketSlice.avgBidPrice >> _delimiter >> _marketSlice.avgAskPrice >> _delimiter >> _marketSlice.totalBidVol >> _delimiter >> _marketSlice.totalAskVol >> _delimiter >> _marketSlice.avgBidAskSpread >> _delimiter >> _marketSlice.priceChange) {
             _marketSlices.push_back(_marketSlice);
         }
 
@@ -305,8 +311,14 @@ void processData(const std::string& _inputFile, SampleVector& _sampleVector, Lab
     char _delimiter;
 
     while (_inputFileS >> _marketSlice.avgBidPrice >> _delimiter >> _marketSlice.avgAskPrice >> _delimiter >> _marketSlice.totalBidVol >> _delimiter >> _marketSlice.totalAskVol >> _delimiter >> _marketSlice.avgBidAskSpread >> _delimiter >> _marketSlice.priceChange) {
-        _sampleVector.emplace_back(_marketSlice.avgBidPrice, _marketSlice.avgAskPrice, _marketSlice.totalBidVol, _marketSlice.totalAskVol, _marketSlice.avgBidAskSpread);
         _labelVector.emplace_back(_marketSlice.priceChange);
+        Sample _sample;
+        _sample(0, 0) = _marketSlice.avgBidPrice;
+        _sample(1, 0) = _marketSlice.avgAskPrice;
+        _sample(2, 0) = _marketSlice.totalBidVol;
+        _sample(3, 0) = _marketSlice.totalAskVol;
+        _sample(4, 0) = _marketSlice.avgBidAskSpread;
+        _sampleVector.emplace_back(_sample);
     }
 }
 
@@ -351,18 +363,59 @@ void APS_BuildTrainingSet() {
     dataNormalizer("training_data.csv", "n_training_data.csv");
 }
 
+void APS_CrossValidation() {
+    LabelVector _labelVector;
+    SampleVector _sampleVector;
+    Trainer _trainer;
+
+    processData("n_training_data.csv", _sampleVector, _labelVector);
+    dlib::randomize_samples(_sampleVector, _labelVector);
+
+    long double _bestGamma = 0;
+    long double _bestC = 0;
+    long double _bestEpsilonValue = 0;
+    long double _bestMSEValue = std::numeric_limits<long double>::max();
+
+    for (long double _gamma = 0.00001; _gamma <= 1; _gamma *= 5) {
+        for (long double _c = 1; _c <= 100; _c *= 5) {
+            for (long double _epsilon = 0.001; _epsilon <= 0.1; _epsilon *= 5) {
+                _trainer.set_kernel(_gamma);
+                _trainer.set_c(_c);
+                _trainer.set_epsilon_insensitivity(_epsilon);
+
+                auto _results = dlib::cross_validate_regression_trainer(_trainer, _sampleVector, _labelVector, 6);
+                long double _MSEValue = _results(0);
+                std::cout << "MSE Value: " << _MSEValue << std::endl;
+
+                if (_MSEValue < _bestMSEValue) {
+                    _bestMSEValue = _MSEValue;
+                    std::cout << "New MSE Value: " << _bestMSEValue << std::endl;
+                    _bestGamma = _gamma;
+                    _bestC = _c;
+                    _bestEpsilonValue = _epsilon;
+                }
+            }
+        }
+    }
+    GAMMA_VALUE = _bestGamma;
+    C_VALUE = _bestC;
+    EPSILON_SENSITIVITY_VALUE = _bestEpsilonValue;
+    std::cout << "Best MSE Value: " << _bestMSEValue << ", Best Gamma Value: " << _bestGamma << ", Best C Value: " << _bestC << ", Best Epsilon Value: " << _bestEpsilonValue << std::endl;
+}
 
 DecisionFunction APS_CreateLFunction() {
     LabelVector _labelVector;
     SampleVector _sampleVector;
     Trainer _trainer;
+    _trainer.set_kernel(GAMMA_VALUE);
+    _trainer.set_c(C_VALUE);
+    _trainer.set_epsilon_insensitivity(EPSILON_SENSITIVITY_VALUE);
     processData("n_training_data.csv", _sampleVector, _labelVector);
 
     DecisionFunction _learnedFunction = _trainer.train(_sampleVector, _labelVector);
     return _learnedFunction;
 }
-// NOT FINISHED
-#if 0
+
 void APS_Predictor(dlib::matrix<double>& _featureMatrix, DecisionFunction& _learnedFunction) {
     double _normMean = dlib::mean(dlib::mat(_featureMatrix));
     double _normStandardDeviation = dlib::stddev(dlib::mat(_featureMatrix));
@@ -378,21 +431,42 @@ void APS_Predictor(dlib::matrix<double>& _featureMatrix, DecisionFunction& _lear
         double _totalAskVolume = totalAskVol(_jsonResponse);
         double _avgBidAskSpread = avgBidAskSpread(_jsonResponse);
 
-        dlib::matrix<double> _dlibNewFeatures(1, 5);
-        _dlibNewFeatures(0, 0) = _avgBidPrice;
-        _dlibNewFeatures(0, 1) = _avgBidPrice;
-        _dlibNewFeatures(0, 2) = _avgBidPrice;
-        _dlibNewFeatures(0, 3) = _avgBidPrice;
-        _dlibNewFeatures(0, 4) = _avgBidPrice;
+        dlib::matrix<double> _newFeatures(1, 5);
+        _newFeatures(0, 0) = _avgBidPrice;
+        _newFeatures(0, 1) = _avgAskPrice;
+        _newFeatures(0, 2) = _totalBidVolume;
+        _newFeatures(0, 3) = _totalAskVolume;
+        _newFeatures(0, 4) = _avgBidAskSpread;
+
+        for (long i = 0; i < _newFeatures.nc(); ++i) {
+            _newFeatures(0, i) -= _normMean;
+            _newFeatures(0, i) /= _normStandardDeviation;
+        }
+        long double _prediction = _learnedFunction(_newFeatures);
+        double _currentPrice = getPrice();
+        double _calculatedPrice = _currentPrice * _prediction;
+
+        std::cout << "I predict that the price will change by: " << _prediction << std::endl;
+        std::cout << "So the price will be: " << _calculatedPrice << std::endl;
     }
 }
-#endif
+
 int main() {
     APS_BuildTrainingSet();
+    APS_CrossValidation();
     DecisionFunction _learnedFunction = APS_CreateLFunction();
     dlib::matrix<double> _featureMatrix;
+    APS_Predictor(_featureMatrix, _learnedFunction);
+    std::this_thread::sleep_for(std::chrono::seconds(TIME_WAIT*ITERATION_NUMBER));
+    std::cout << "Actual Price: " << getPrice() << std::endl;
     return EXIT_SUCCESS;
 }
+
+/*
+#if 0
+#endif
+*/
+
     /*
     get order book data, then get price x amount of time from that point < calculate price% change is then the label
     1.0) data collection ORDER BOOK DATA + cur price
