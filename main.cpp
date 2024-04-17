@@ -16,7 +16,7 @@ const std::string BINANCE_PORT = "443";
 const std::string API_KEY = "";
 const std::string API_SECRET = "";
 const std::string SYMBOL = "BTCUSDT";
-const int ITERATION_NUMBER = 120;
+const int ITERATION_NUMBER = 240;
 const int TIME_WAIT_S = 60;
 long double GAMMA_VALUE = 0.00025;
 long double C_VALUE = 5;
@@ -24,7 +24,7 @@ long double EPSILON_SENSITIVITY_VALUE = 0.001;
 
 using json = nlohmann::json;
 
-using LabelVector = std::vector<double>;
+using DependentVector = std::vector<double>;
 
 using Sample = dlib::matrix<double, 5, 1>;
 using RadialKernel = dlib::radial_basis_kernel<Sample>;
@@ -319,13 +319,13 @@ void dataNormalizer(const std::string& _inputFile, const std::string& _outputFil
     }
 }
 
-void processData(const std::string& _inputFile, SampleVector& _sampleVector, LabelVector& _labelVector) {
+void processData(const std::string& _inputFile, SampleVector& _sampleVector, DependentVector& _dependentVector) {
     std::ifstream _inputFileS(_inputFile);
     MarketSlice _marketSlice;
     char _delimiter;
 
     while (_inputFileS >> _marketSlice.avgBidPrice >> _delimiter >> _marketSlice.avgAskPrice >> _delimiter >> _marketSlice.totalBidVol >> _delimiter >> _marketSlice.totalAskVol >> _delimiter >> _marketSlice.avgBidAskSpread >> _delimiter >> _marketSlice.priceChange) {
-        _labelVector.emplace_back(_marketSlice.priceChange);
+        _dependentVector.emplace_back(_marketSlice.priceChange);
         Sample _sample;
         _sample(0, 0) = _marketSlice.avgBidPrice;
         _sample(1, 0) = _marketSlice.avgAskPrice;
@@ -378,12 +378,12 @@ void APS_BuildTrainingSet() {
 }
 
 void APS_CrossValidation() {
-    LabelVector _labelVector;
+    DependentVector _dependentVector;
     SampleVector _sampleVector;
     Trainer _trainer;
 
-    processData("n_training_data.csv", _sampleVector, _labelVector);
-    dlib::randomize_samples(_sampleVector, _labelVector);
+    processData("n_training_data.csv", _sampleVector, _dependentVector);
+    dlib::randomize_samples(_sampleVector, _dependentVector);
 
     long double _bestGamma = 0;
     long double _bestC = 0;
@@ -397,7 +397,7 @@ void APS_CrossValidation() {
                 _trainer.set_c(_c);
                 _trainer.set_epsilon_insensitivity(_epsilon);
 
-                auto _results = dlib::cross_validate_regression_trainer(_trainer, _sampleVector, _labelVector, 6);
+                auto _results = dlib::cross_validate_regression_trainer(_trainer, _sampleVector, _dependentVector, 6);
                 long double _MSEValue = _results(0);
 
                 if (_MSEValue < _bestMSEValue) {
@@ -416,15 +416,15 @@ void APS_CrossValidation() {
 }
 
 DecisionFunction APS_CreateLFunction() {
-    LabelVector _labelVector;
+    DependentVector _dependentVector;
     SampleVector _sampleVector;
     Trainer _trainer;
     _trainer.set_kernel(GAMMA_VALUE);
     _trainer.set_c(C_VALUE);
     _trainer.set_epsilon_insensitivity(EPSILON_SENSITIVITY_VALUE);
-    processData("n_training_data.csv", _sampleVector, _labelVector);
+    processData("n_training_data.csv", _sampleVector, _dependentVector);
 
-    DecisionFunction _learnedFunction = _trainer.train(_sampleVector, _labelVector);
+    DecisionFunction _learnedFunction = _trainer.train(_sampleVector, _dependentVector);
     return _learnedFunction;
 }
 
