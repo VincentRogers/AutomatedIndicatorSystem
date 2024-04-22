@@ -57,7 +57,7 @@ void writeResult(std::string _filename, double& _originalPrice, double& _predict
         _file << _predictedPrice << ",";
         _file << _actualPrice << ",";
         _file << _priceChange << ",";
-        _file << "SPACER" << ",";
+        _file << "SPACER" << "\n";
         _file.close();
     }
     else {
